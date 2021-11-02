@@ -11,6 +11,8 @@ from ctgan.data_sampler import DataSampler
 from ctgan.data_transformer import DataTransformer
 from ctgan.synthesizers.base import BaseSynthesizer
 
+from matplotlib import pyplot
+
 
 class Discriminator(Module):
 
@@ -83,7 +85,17 @@ class Generator(Module):
     def forward(self, input):
         data = self.seq(input)
         return data
-
+#EL: plotting the loss functions
+def plot_history(d1_hist, d2_hist, g_hist):
+        # plot loss
+    pyplot.subplot(1, 1, 1)
+    pyplot.plot(d1_hist, label='d-real')
+    pyplot.plot(d2_hist, label='d-fake')
+    pyplot.plot(g_hist, label='gen')
+    pyplot.legend()
+        # save plot to file
+    pyplot.savefig('/content/model/vanillagan/plot.png')
+    pyplot.close()
 
 class CTGANSynthesizer(BaseSynthesizer):
     """Conditional Table GAN Synthesizer.
@@ -137,6 +149,7 @@ class CTGANSynthesizer(BaseSynthesizer):
                  log_frequency=True, verbose=False, epochs=300, pac=10, cuda=True):
 
         assert batch_size % 2 == 0
+
 
         self._embedding_dim = embedding_dim
         self._generator_dim = generator_dim
@@ -267,6 +280,7 @@ class CTGANSynthesizer(BaseSynthesizer):
         if invalid_columns:
             raise ValueError('Invalid columns found: {}'.format(invalid_columns))
 
+
     def fit(self, train_data, discrete_columns=tuple(), epochs=None):
         """Fit the CTGAN Synthesizer models to the training data.
 
@@ -289,6 +303,8 @@ class CTGANSynthesizer(BaseSynthesizer):
                  'in a future version. Please pass `epochs` to the constructor instead'),
                 DeprecationWarning
             )
+
+        
 
         self._transformer = DataTransformer()
         self._transformer.fit(train_data, discrete_columns)
@@ -326,6 +342,9 @@ class CTGANSynthesizer(BaseSynthesizer):
 
         mean = torch.zeros(self._batch_size, self._embedding_dim, device=self._device)
         std = mean + 1
+
+        #EL: defining lists of history to save the loss values for plotting them
+        d1_hist, d2_hist, g_hist = list(), list(), list()
 
         steps_per_epoch = max(len(train_data) // self._batch_size, 1)
         for i in range(epochs):
@@ -368,6 +387,9 @@ class CTGANSynthesizer(BaseSynthesizer):
                     pen = discriminator.calc_gradient_penalty(
                         real_cat, fake_cat, self._device, self.pac)
                     loss_d = -(torch.mean(y_real) - torch.mean(y_fake))
+                    #EL: appending discriminator's loss values to the list
+                    d1_hist.append(torch.mean(y_real))
+                    d2_hist.append(torch.mean(y_fake))
 
                     optimizerD.zero_grad()
                     pen.backward(retain_graph=True)
@@ -399,6 +421,8 @@ class CTGANSynthesizer(BaseSynthesizer):
                     cross_entropy = self._cond_loss(fake, c1, m1)
 
                 loss_g = -torch.mean(y_fake) + cross_entropy
+                #EL: appending generator's loss values to the list
+                g_hist.append(loss_g)
 
                 optimizerG.zero_grad()
                 loss_g.backward()
@@ -408,6 +432,9 @@ class CTGANSynthesizer(BaseSynthesizer):
                 print(f"Epoch {i+1}, Loss G: {loss_g.detach().cpu(): .4f}, "
                       f"Loss D: {loss_d.detach().cpu(): .4f}",
                       flush=True)
+
+        #EL: calling the plot unction             
+        plot_history(d1_hist, d2_hist, g_hist)    
 
     def sample(self, n, condition_column=None, condition_value=None):
         """Sample data similar to the training data.
